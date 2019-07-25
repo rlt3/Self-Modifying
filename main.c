@@ -1,6 +1,23 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdarg.h>
+#include <unistd.h>
+#include <string.h>
+#include <errno.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+
+void
+error (const char* format, ...)
+{
+    va_list args;
+    va_start(args, format);
+    vprintf(format, args);
+    va_end(args);
+    putchar('\n');
+    exit(1);
+}
 
 void
 protected ()
@@ -25,15 +42,41 @@ protected_end ()
      */
 }
 
+/*
+ * Performs bit-arithmetic with the size of the page to clear the least
+ * significant `size` bits of the pointer to find the nearest start of the
+ * page.
+ */
+void*
+getpage (void *p, uint64_t size)
+{
+    return (void*)((uint64_t)p & ~(size - 1));
+}
+
+/*
+ * Mark the protected function as writeable.
+ */
+void
+mark_protected_writable ()
+{
+    /*
+     * The mprotect system call *must* be called on an address that is page
+     * aligned and *must* be the length of the entire page.  This allows us to
+     * write to this program's instructions which are normally read/execute
+     * only.
+     */
+    uint64_t pagesize = sysconf(_SC_PAGE_SIZE);
+    void* page = getpage(protected, pagesize);
+    if (mprotect(page, pagesize, PROT_WRITE | PROT_EXEC | PROT_READ) < 0)
+        error("mprotect: %s", strerror(errno));
+}
+
 int
 main (int argc, char **argv)
 {
-    protected();
-    uint64_t length = protected_end - protected;
-    uint8_t *bytes = (uint8_t*) protected;
-    printf("num bytes: %ld\n", length - 1);
-    for (int i = 0; i < length; i++)
-        printf("0x%x ", bytes[i]);
-    putchar('\n');
+    mark_protected_writable();
+    char cmd[256];
+    sprintf(cmd, "cat /proc/%d/maps", getpid());
+    system(cmd);
     return 0;
 }
