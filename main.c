@@ -71,12 +71,30 @@ mark_protected_writable ()
         error("mprotect: %s", strerror(errno));
 }
 
+/*
+ * After `protected` is writable, this XORs each byte of the function with the
+ * given key.
+ */
+void
+xor_protected (uint8_t key)
+{
+    uint64_t len = protected_end - protected;
+    uint8_t *bytes = (void*) protected;
+    for (int i = 0; i < len; i++)
+        bytes[i] ^= key;
+}
+
 int
 main (int argc, char **argv)
 {
     mark_protected_writable();
-    char cmd[256];
-    sprintf(cmd, "cat /proc/%d/maps", getpid());
-    system(cmd);
+    xor_protected(0xff);
+    uint64_t len = protected_end - protected;
+    uint8_t *bytes = (void*) protected;
+    for (int i = 0; i < len; i++)
+        printf("0x%x ", bytes[i]);
+    putchar('\n');
+    xor_protected(0xff);
+    protected();
     return 0;
 }
