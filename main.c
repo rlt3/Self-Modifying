@@ -84,17 +84,61 @@ xor_protected (uint8_t key)
         bytes[i] ^= key;
 }
 
+/*
+ * Copy the file to a new file of the same name and return the file descriptor.
+ */
+FILE*
+copy_and_open (const char *filename)
+{
+    /*
+     * We do this because opening a file for writing while it is currently
+     * being executed causes the open system call to return the ETXTBSY or
+     * "text busy" error. The kernel has the inode of the file mmap'd in memory
+     * so it can't be modified that way.  So, we sidestep that limitation by
+     * saving all the bytes of the executable file, unlinking the file to that
+     * particular inode, and recreating it under a different inode.
+     */
+    FILE *f = fopen(filename, "r");
+    if (!f)
+        error("%s: %s", filename, strerror(errno));
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    rewind(f);
+    uint8_t bytes[size];
+    fread(bytes, size, 1, f);
+    fclose(f);
+
+    unlink(filename);
+    f = fopen(filename, "w+");
+    if (!f)
+        error("%s: %s", filename, strerror(errno));
+    fwrite(bytes, size, 1, f);
+    rewind(f);
+    chmod(filename, 0775);
+
+    return f;
+}
+
+/*
+ * Get how many bytes into the executable file the protected function should be.
+ */
+uint64_t
+get_protected_offset ()
+{
+    uint64_t pagesize = sysconf(_SC_PAGE_SIZE);
+    void* page = getpage(protected, pagesize);
+    return (void*)protected - page;
+}
+
 int
 main (int argc, char **argv)
 {
     mark_protected_writable();
     xor_protected(0xff);
-    uint64_t len = protected_end - protected;
-    uint8_t *bytes = (void*) protected;
-    for (int i = 0; i < len; i++)
-        printf("0x%x ", bytes[i]);
-    putchar('\n');
-    xor_protected(0xff);
-    protected();
+    FILE *f = copy_and_open(argv[0]);
+    fseek(f, get_protected_offset(), SEEK_CUR);
+    fwrite(protected, protected_end - protected, 1, f);
+    fclose(f);
+    printf("Encrypted.\n");
     return 0;
 }
