@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <stdarg.h>
 #include <unistd.h>
 #include <string.h>
@@ -130,15 +131,66 @@ get_protected_offset ()
     return (void*)protected - page;
 }
 
+/*
+ * Check of the protected function has been encrypted yet or not.
+ */
+bool
+is_encrypted ()
+{
+    /*
+     * Every function starts with "push %rbp; mov %rsp, %rbp". Knowing this
+     * we can make a very simple check to see if the bytes have either already
+     * been encrypted or if they were decrypted successfully.
+     */
+    uint8_t header[] = { 0x55, 0x48, 0x89, 0xe5 };
+    uint8_t *bytes = (uint8_t*) protected;
+    for (int i = 0; i < sizeof(header); i++)
+        if (bytes[i] != header[i])
+            return true;
+    return false;
+}
+
+void
+read_key (const char *str, uint32_t *key)
+{
+    if (sscanf(str, "0x%x", key) < 1)
+        error("Argument `%s' needs to be a hexadecimal!", str);
+}
+
 int
 main (int argc, char **argv)
 {
-    mark_protected_writable();
-    xor_protected(0xff);
-    FILE *f = copy_and_open(argv[0]);
-    fseek(f, get_protected_offset(), SEEK_CUR);
-    fwrite(protected, protected_end - protected, 1, f);
-    fclose(f);
-    printf("Encrypted.\n");
+    uint32_t key = 0;
+
+    if (argc < 2)
+        error("Usage: %s [encrypt] <key>", argv[0]);
+
+    if (strcmp(argv[1], "encrypt") == 0) {
+        if (is_encrypted())
+            error("Already encrypted.");
+        /* Encrypt the bytes using the given key */
+        read_key(argv[2], &key);
+        mark_protected_writable();
+        xor_protected(key);
+        /* Write those bytes to a new executable file */
+        FILE *f = copy_and_open(argv[0]);
+        fseek(f, get_protected_offset(), SEEK_CUR);
+        fwrite(protected, protected_end - protected, 1, f);
+        fclose(f);
+        printf("Encrypted.\n");
+    }
+    else {
+        if (!is_encrypted())
+            error("Needs to be encrypted first.");
+        /* Decrypt the bytes using the given key */
+        read_key(argv[1], &key);
+        mark_protected_writable();
+        xor_protected(key);
+        /* If it is still protected exit early, otherwise run it */
+        if (is_encrypted())
+            error("Bad key.");
+        protected();
+    }
+
     return 0;
 }
