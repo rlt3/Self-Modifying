@@ -30,7 +30,7 @@ protected ()
      * we construct the string as an array of bytes so the compiler cannot
      * place these bytes it into a section that won't be encrypted.
      */
-    char s[] = {'s', '3', 'c', 'r', '3', 't', '\0'};
+    static const char s[] = {'s', '3', 'c', 'r', '3', 't', '\0'};
     puts(s);
 }
 

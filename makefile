@@ -1,2 +1,2 @@
-all: main.c
-	$(CC) -Wall -Werror -o self main.c
+all: burn.c
+	$(CC) -Wall -o self burn.c
